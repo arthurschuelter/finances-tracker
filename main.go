@@ -44,7 +44,6 @@ type QuoteResponse struct {
 var API_URL = "https://api.hgbrasil.com/finance/stock_price?key=%s&symbol=%s"
 
 func main() {
-	fmt.Println("Hello")
 	if err := godotenv.Load(); err != nil {
 		log.Println("no .env file found, using system environment")
 	}
@@ -80,10 +79,27 @@ func main() {
 		}
 		PrintSymbol(Quote{Symbol: strings.ToUpper(curAsset.Symbol), RegularMarketPrice: price}, curAsset)
 	}
+
+	s := http.Server{
+		Addr:         ":8080",
+		ReadTimeout:  30 * time.Second,
+		WriteTimeout: 90 * time.Second,
+		IdleTimeout:  120 * time.Second,
+		// Handler:      HelloHandler{},
+	}
+
+	err = s.ListenAndServe()
+	if err != nil {
+		if err != http.ErrServerClosed {
+			panic(err)
+		}
+	}
 }
 
-const cacheMaxAge = 30 * time.Minute
-const cacheTimeLayout = "2006-01-02 15-04-05"
+const (
+	cacheMaxAge     = 30 * time.Minute
+	cacheTimeLayout = "2006-01-02 15-04-05"
+)
 
 // GetSymbols returns cached prices while the cache is younger than 30 minutes.
 // If the cache is missing, invalid, or stale, it fetches fresh prices and writes them.
@@ -153,7 +169,7 @@ func WriteCache(symbols []Symbol) error {
 		return err
 	}
 
-	return os.WriteFile("cache.json", data, 0644)
+	return os.WriteFile("cache.json", data, 0o644)
 }
 
 func PrintSymbol(quote Quote, asset Asset) {
