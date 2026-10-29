@@ -9,18 +9,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/arthurschuelter/finances/cache"
 	"github.com/joho/godotenv"
 )
-
-type Cache struct {
-	Date    string   `json:"Date"`
-	Symbols []Symbol `json:"Symbols"`
-}
-
-type Symbol struct {
-	Name  string  `json:"Name"`
-	Price float64 `json:"Price"`
-}
 
 type Asset struct {
 	Symbol      string  `json:"symbol"`
@@ -96,21 +87,14 @@ func main() {
 	}
 }
 
-const (
-	cacheMaxAge     = 30 * time.Minute
-	cacheTimeLayout = "2006-01-02 15-04-05"
-)
-
-// GetSymbols returns cached prices while the cache is younger than 30 minutes.
-// If the cache is missing, invalid, or stale, it fetches fresh prices and writes them.
-func GetSymbols(apiToken string, assets []Asset) ([]Symbol, error) {
-	if symbols, fresh, err := ReadFreshCache("cache.json", time.Now()); err != nil {
+func GetSymbols(apiToken string, assets []Asset) ([]cache.Symbol, error) {
+	if symbols, fresh, err := cache.ReadFreshCache("cache.json", time.Now()); err != nil {
 		log.Printf("Ignoring invalid cache: %v", err)
 	} else if fresh {
 		return symbols, nil
 	}
 
-	symbols := make([]Symbol, 0, len(assets))
+	symbols := make([]cache.Symbol, 0, len(assets))
 	client := &http.Client{Timeout: 10 * time.Second}
 	for _, asset := range assets {
 		url := fmt.Sprintf("https://brapi.dev/api/quote/%s?token=%s", asset.Symbol, apiToken)
@@ -128,48 +112,12 @@ func GetSymbols(apiToken string, assets []Asset) ([]Symbol, error) {
 			return nil, fmt.Errorf("API returned no results for %s", asset.Symbol)
 		}
 		quote := data.Results[0]
-		symbols = append(symbols, Symbol{Name: quote.Symbol, Price: quote.RegularMarketPrice})
+		symbols = append(symbols, cache.Symbol{Name: quote.Symbol, Price: quote.RegularMarketPrice})
 	}
-	if err := WriteCache(symbols); err != nil {
+	if err := cache.WriteCache("cache.json", symbols); err != nil {
 		return nil, fmt.Errorf("write cache: %w", err)
 	}
 	return symbols, nil
-}
-
-// ReadFreshCache loads cachePath and reports whether its timestamp is within max age.
-func ReadFreshCache(cachePath string, now time.Time) ([]Symbol, bool, error) {
-	data, err := os.ReadFile(cachePath)
-	if err != nil {
-		return nil, false, err
-	}
-	var cache Cache
-	if err := json.Unmarshal(data, &cache); err != nil {
-		return nil, false, err
-	}
-	updatedAt, err := time.Parse(cacheTimeLayout, cache.Date)
-	if err != nil {
-		return nil, false, err
-	}
-	age := now.Sub(updatedAt)
-	if age < 0 || age >= cacheMaxAge {
-		return nil, false, nil
-	}
-	return cache.Symbols, true, nil
-}
-
-// WriteCache stores the latest symbol values in cache.json.
-func WriteCache(symbols []Symbol) error {
-	cache := Cache{
-		Date:    time.Now().Format(cacheTimeLayout),
-		Symbols: symbols,
-	}
-
-	data, err := json.MarshalIndent(cache, "", "  ")
-	if err != nil {
-		return err
-	}
-
-	return os.WriteFile("cache.json", data, 0o644)
 }
 
 func PrintSymbol(quote Quote, asset Asset) {
